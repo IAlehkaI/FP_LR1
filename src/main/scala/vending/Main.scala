@@ -4,6 +4,31 @@ import vending.monads.{IO, Writer, State}
 import vending.domain.{Config, VendingMachineState, DomainLogic, VendingState}
 import scala.util.Try
 
+// 1. Создаем строгий ADT для команд меню
+sealed trait MenuCommand
+object MenuCommand {
+  case object InsertCoin extends MenuCommand
+  case object BuyProduct extends MenuCommand
+  case object Refund extends MenuCommand
+  case object RefillProduct extends MenuCommand
+  case object NextDay extends MenuCommand
+  case object Exit extends MenuCommand
+  case object Empty extends MenuCommand
+  case class Unknown(raw: String) extends MenuCommand
+
+  // Изолируем грязный парсинг строк
+  def parse(input: String): MenuCommand = input.trim match {
+    case "1" => InsertCoin
+    case "2" => BuyProduct
+    case "3" => Refund
+    case "4" => RefillProduct
+    case "5" => NextDay
+    case "0" => Exit
+    case ""  => Empty
+    case other => Unknown(other)
+  }
+}
+
 object Main {
 
   val config = Config(
@@ -14,7 +39,6 @@ object Main {
     discountPercent = 20
   )
 
-  // Sorted list of products to keep consistent numbering
   val productList = config.prices.keys.toList.sorted
 
   val initialState = VendingMachineState(
@@ -79,7 +103,8 @@ object Main {
       println(s"  1 - Insert coin (Valid: ${config.validCoins.toList.sorted.mkString(", ")})")
       println("  2 - Buy product")
       println("  3 - Refund / Cancel")
-      println("  4 - Next Day (Reset student discounts)")
+      println("  4 - Refill product (Admin)")
+      println("  5 - Next Day (Reset student discounts)")
       println("  0 - Exit")
       println("="*45)
       print(" Select action: ")
@@ -92,25 +117,23 @@ object Main {
       input <- IO.readLn()
       idStr = if (input != null) input.trim else ""
       result <- if (idStr.isEmpty) {
-                  IO.pure(None)
-                } else if (!DomainLogic.isValidStudentId(idStr).run(config)) {
-                  IO.putStrLn(s"\n[!] Invalid student ID ($idStr). Proceeding without discount.").flatMap(_ => IO.pure(None))
-                } else if (state.usedStudentIds.contains(idStr)) {
-                  IO.putStrLn(s"\n[!] Student ID ($idStr) has already been used today. Proceeding without discount.").flatMap(_ => IO.pure(None))
-                } else {
-                  IO.pure(Some(idStr))
-                }
+        IO.pure(None)
+      } else if (!DomainLogic.isValidStudentId(idStr).run(config)) {
+        IO.putStrLn(s"\n[!] Invalid student ID ($idStr). Proceeding without discount.").flatMap(_ => IO.pure(None))
+      } else if (state.usedStudentIds.contains(idStr)) {
+        IO.putStrLn(s"\n[!] Student ID ($idStr) has already been used today. Proceeding without discount.").flatMap(_ => IO.pure(None))
+      } else {
+        IO.pure(Some(idStr))
+      }
     } yield result
   }
 
   def parseProductSelection(input: String): Option[String] = {
     val trimmed = input.trim
-    // Check if input is a number
     Try(trimmed.toInt).toOption match {
       case Some(num) if num >= 1 && num <= productList.length =>
         Some(productList(num - 1))
       case _ =>
-        // Check if input matches product name (case-insensitive)
         productList.find(_.equalsIgnoreCase(trimmed))
     }
   }
@@ -120,78 +143,99 @@ object Main {
       _ <- renderMenu(state)
       actionStr <- IO.readLn()
       _ <- if (actionStr == null) {
-             IO.putStrLn("\n[!] Input stream closed. Exiting...").flatMap(_ => IO.pure(()))
-           } else {
-             handleAction(actionStr.trim, state)
-           }
+        IO.putStrLn("\n[!] Input stream closed. Exiting...").flatMap(_ => IO.pure(()))
+      } else {
+        // 2. Строка парсится в ADT
+        val cmd = MenuCommand.parse(actionStr)
+        handleCommand(cmd, state)
+      }
     } yield ()
   }
 
-  def handleAction(action: String, state: VendingMachineState): IO[Unit] = {
-    action match {
-      case "1" =>
+  // 3. Маршрутизация работает со строгими типами
+  def handleCommand(cmd: MenuCommand, state: VendingMachineState): IO[Unit] = {
+    cmd match {
+      case MenuCommand.InsertCoin =>
         for {
           _ <- IO.delay(print(s" Enter coin value (${config.validCoins.toList.sorted.mkString("/")}): "))
           coinStr <- IO.readLn()
           coin = if (coinStr != null) Try(coinStr.trim.toInt).getOrElse(-1) else -1
           _ <- if (coin == -1) IO.putStrLn("\n[!] Invalid number format.")
-               else IO.pure(())
+          else IO.pure(())
 
           (newState, writer) = processCoin(coin, Writer.pure(())).run(state)
           _ <- IO.delay {
-                 if (coin != -1) {
-                   println("\n[Logs]:")
-                   writer.run._1.foreach(l => println(s" -> $l"))
-                 }
-               }
+            if (coin != -1) {
+              println("\n[Logs]:")
+              writer.run._1.foreach(l => println(s" -> $l"))
+            }
+          }
           _ <- loop(newState)
         } yield ()
 
-      case "2" =>
+      case MenuCommand.BuyProduct =>
         for {
           _ <- IO.delay {
-                 println("\n Select product by Number (1-4) or Name (e.g. Cola):")
-                 print(" Selection: ")
-               }
+            println("\n Select product by Number (1-4) or Name (e.g. Cola):")
+            print(" Selection: ")
+          }
           productInput <- IO.readLn()
           safeInput = if (productInput != null) productInput.trim else ""
 
           _ <- parseProductSelection(safeInput) match {
-                 case Some(productName) =>
-                   for {
-                     studentIdOpt <- askForStudentId(state)
-                     (newState, writer) = processPurchase(productName, studentIdOpt, Writer.pure(())).run(state)
-                     _ <- IO.delay {
-                            println("\n[Transaction Logs]:")
-                            writer.run._1.foreach(l => println(s" -> $l"))
-                          }
-                     _ <- loop(newState)
-                   } yield ()
-                 case None =>
-                   IO.putStrLn("\n[!] Invalid product selection.").flatMap(_ => loop(state))
-               }
+            case Some(productName) =>
+              for {
+                studentIdOpt <- askForStudentId(state)
+                (newState, writer) = processPurchase(productName, studentIdOpt, Writer.pure(())).run(state)
+                _ <- IO.delay {
+                  println("\n[Transaction Logs]:")
+                  writer.run._1.foreach(l => println(s" -> $l"))
+                }
+                _ <- loop(newState)
+              } yield ()
+            case None =>
+              IO.putStrLn("\n[!] Invalid product selection.").flatMap(_ => loop(state))
+          }
         } yield ()
 
-      case "3" =>
+      case MenuCommand.Refund =>
         val (newState, refund) = VendingState.cancelPurchase().run(state)
         IO.putStrLn(s"\n[!] Refund issued: $refund coins.").flatMap(_ => loop(newState))
 
-      case "4" =>
+      case MenuCommand.RefillProduct =>
+        for {
+          _ <- IO.delay(print(" Enter product name to refill (e.g. Cola): "))
+          pInput <- IO.readLn()
+          _ <- IO.delay(print(" Enter amount to add: "))
+          aInput <- IO.readLn()
+          amount = Try(if (aInput != null) aInput.trim.toInt else 0).getOrElse(0)
+          safeProduct = if (pInput != null) pInput.trim else ""
+
+          _ <- parseProductSelection(safeProduct) match {
+            case Some(productName) if amount > 0 =>
+              val newState = VendingState.refillProduct(productName, amount).run(state)._1
+              IO.putStrLn(s"\n[!] Refilled $amount units of $productName.").flatMap(_ => loop(newState))
+            case _ =>
+              IO.putStrLn("\n[!] Invalid product or amount.").flatMap(_ => loop(state))
+          }
+        } yield ()
+
+      case MenuCommand.NextDay =>
         val (newState, newDay) = VendingState.nextDay().run(state)
         IO.putStrLn(s"\n[!] Advanced to Day $newDay. All student discounts have been reset.")
           .flatMap(_ => loop(newState))
 
-      case "0" =>
+      case MenuCommand.Exit =>
         IO.putStrLn("\nShutting down vending machine...")
           .flatMap(_ => IO.putStrLn("Final State Summary:"))
           .flatMap(_ => IO.putStrLn(s" Total Revenue: ${state.revenue} coins"))
           .flatMap(_ => IO.putStrLn(s" Remaining Inventory: ${state.inventory.filter(_._2 > 0).map{case (k,v) => s"$k($v)"}.mkString(", ")}"))
           .flatMap(_ => IO.putStrLn("Goodbye!"))
 
-      case "" => loop(state) // Empty enter
+      case MenuCommand.Empty => loop(state)
 
-      case _ =>
-        IO.putStrLn("\n[!] Unknown action. Please select a valid number.").flatMap(_ => loop(state))
+      case MenuCommand.Unknown(raw) =>
+        IO.putStrLn(s"\n[!] Unknown action '$raw'. Please select a valid option.").flatMap(_ => loop(state))
     }
   }
 

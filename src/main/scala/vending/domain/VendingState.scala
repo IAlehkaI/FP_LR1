@@ -4,13 +4,13 @@ import vending.monads.State
 
 // The state of the vending machine
 case class VendingMachineState(
-  inventory: Map[String, Int],        // Stock of products
-  insertedAmount: Int,                // Currently inserted money
-  revenue: Int,                       // Total collected revenue
-  coinsTill: Map[Int, Int],           // Cash register breakdown
-  usedStudentIds: Set[String],        // Student IDs that have already used their discount today
-  dayCounter: Int                     // Tracks the current day to reset discounts
-)
+                                inventory: Map[String, Int],        // Stock of products
+                                insertedAmount: Int,                // Currently inserted money
+                                revenue: Int,                       // Total collected revenue
+                                coinsTill: Map[Int, Int],           // Cash register breakdown
+                                usedStudentIds: Set[String],        // Student IDs that have already used their discount today
+                                dayCounter: Int                     // Tracks the current day to reset discounts
+                              )
 
 object VendingState {
 
@@ -48,6 +48,14 @@ object VendingState {
   def cancelPurchase(): State[VendingMachineState, Int] = State { s =>
     val refund = s.insertedAmount
     (s.copy(insertedAmount = 0), refund)
+  }
+
+  // ДОБАВЛЕНО: функция пополнения товаров (refillProduct) согласно требованиям
+  def refillProduct(product: String, amount: Int): State[VendingMachineState, Unit] = State.modify { s =>
+    val currentStock = s.inventory.getOrElse(product, 0)
+    s.copy(
+      inventory = s.inventory.updated(product, currentStock + amount)
+    )
   }
 
   def nextDay(): State[VendingMachineState, Int] = State { s =>
