@@ -208,7 +208,7 @@ object Main {
           }
         } yield ()
 
-      // ИЗМЕНЕНИЕ: Обработка возврата с удалением монет из кассы
+      // Обработка возврата с удалением монет из кассы
       case MenuCommand.Refund =>
         val (newState, (refundAmount, coinsReturned)) = VendingState.cancelPurchase().run(state)
         val coinsStr = if (coinsReturned.isEmpty) "None" else coinsReturned.mkString(", ")
