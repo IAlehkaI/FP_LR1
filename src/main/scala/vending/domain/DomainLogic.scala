@@ -4,8 +4,6 @@ import vending.monads.{Reader, Writer}
 
 object DomainLogic {
 
-  // -- READER --
-
   def priceOf(product: String): Reader[Config, Option[Int]] = Reader { config =>
     config.prices.get(product)
   }
@@ -14,7 +12,7 @@ object DomainLogic {
     config.validCoins.contains(coin)
   }
 
-  // Calculates the price considering the student discount
+  // расчет стоимости товара с учетом скидки студента
   def effectivePrice(product: String, isStudent: Boolean): Reader[Config, Option[Int]] = Reader { config =>
     config.prices.get(product).map { price =>
       if (isStudent) {
@@ -25,14 +23,13 @@ object DomainLogic {
     }
   }
 
-  // Check if student ID is valid
+  // валидация id студента
   def isValidStudentId(id: String): Reader[Config, Boolean] = Reader { config =>
     config.validStudentIds.contains(id)
   }
 
   def calculateChange(inserted: Int, price: Int): Int = inserted - price
 
-  // -- WRITER --
 
   def explainInsert(coin: Int, accepted: Boolean): Writer[Unit] = {
     if (accepted) Writer.tell(s"Coin $coin accepted.")

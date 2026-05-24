@@ -2,7 +2,6 @@ package vending.domain
 
 import vending.monads.State
 
-// The state of the vending machine
 case class VendingMachineState(
                                 inventory: Map[String, Int],        // Stock of products
                                 insertedAmount: Int,                // Currently inserted money
@@ -47,7 +46,7 @@ object VendingState {
     }
   }
 
-  // ИЗМЕНЕНИЕ: Теперь монеты удаляются из кассы (coinsTill) при возврате
+  // удаление из кассы (coinsTill) при возврате
   def cancelPurchase(): State[VendingMachineState, (Int, List[Int])] = State { s =>
     val refundAmount = s.insertedAmount
     val coinsToReturn = s.currentSessionCoins
