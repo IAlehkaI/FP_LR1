@@ -50,7 +50,7 @@ object Main {
     coinsTill = Map(1 -> 0, 2 -> 0, 5 -> 0, 10 -> 0, 50 -> 0, 100 -> 0, 200 -> 0),
     usedStudentIds = Set.empty,
     dayCounter = 1,
-    currentSessionCoins = Nil // ИЗМЕНЕНИЕ: Инициализация пустого списка монет текущей сессии
+    currentSessionCoins = Nil
   )
 
   val clearTerminal: IO[Unit] = IO.delay {
